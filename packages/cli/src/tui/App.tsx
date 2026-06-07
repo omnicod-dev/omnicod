@@ -42,6 +42,7 @@ import { ChatInput }         from "./ChatInput.js"
 import { PermissionPrompt }  from "./PermissionPrompt.js"
 import { QuestionPrompt }    from "./QuestionPrompt.js"
 import { Picker }            from "./Picker.js"
+import { PromptInput }       from "./PromptInput.js"
 import { StatusBar }         from "./StatusBar.js"
 import { CommandSuggest }    from "./CommandSuggest.js"
 import { StartupBanner }     from "./StartupBanner.js"
@@ -84,6 +85,7 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
   const [attachInput, setAttachInput]  = useState(false)
   const [attachPath,  setAttachPath]   = useState("")
   const [picker,     setPicker]        = useState<{ title: string; items: PickerItem[]; onSelect: (i: PickerItem) => void } | null>(null)
+  const [prompt,     setPrompt]        = useState<{ title: string; placeholder: string | undefined; secret: boolean | undefined; onSubmit: (v: string) => void } | null>(null)
   const [tokens,     setTokens]        = useState({ input: 0, output: 0 })
   const [history,    setHistory]       = useState<CoreMessage[]>([])
   const [skillNames, setSkillNames]    = useState<string[]>([])
@@ -539,7 +541,9 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
         setBtwState((s) => s ? { ...s, answer: `Hata: ${err instanceof Error ? err.message : String(err)}`, loading: false } : s)
       })
     },
-    showPicker: (title: string, items: any[], onSelect: any) => setPicker({ title, items, onSelect }),
+    showPicker:  (title: string, items: any[], onSelect: any) => setPicker({ title, items, onSelect }),
+    showPrompt:  (title: string, placeholder: string, secret: boolean, onSubmit: (v: string) => void) =>
+                   setPrompt({ title, placeholder, secret, onSubmit }),
     restoreSession: (msgs: Array<{ role: "user" | "assistant"; content: string }>) => {
       const coreMessages: CoreMessage[] = msgs.map((m) => ({ role: m.role, content: m.content }))
       setHistory(coreMessages)
@@ -654,6 +658,7 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
       case "text":   addSystemMsg(r.content); break
       case "error":  setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "error" as const, content: r.message }]); break
       case "picker": setPicker({ title: r.title, items: r.items, onSelect: r.onSelect }); break
+      case "prompt": setPrompt({ title: r.title, placeholder: r.placeholder, secret: r.secret, onSubmit: r.onSubmit }); break
       case "clear":
         setMessages([])
         setHistory([])
@@ -1096,6 +1101,16 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
             items={picker.items}
             onSelect={(item) => { const onSel = picker.onSelect; setPicker(null); setTimeout(() => onSel(item), 10) }}
             onCancel={() => setPicker(null)}
+          />
+        )}
+
+        {prompt && (
+          <PromptInput
+            title={prompt.title}
+            placeholder={prompt.placeholder}
+            secret={prompt.secret}
+            onSubmit={(v) => { const fn = prompt.onSubmit; setPrompt(null); fn(v) }}
+            onCancel={() => setPrompt(null)}
           />
         )}
 

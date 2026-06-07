@@ -8,6 +8,7 @@ export type CommandResult =
   | { type: "text";   content: string; color?: string }
   | { type: "error";  message: string }
   | { type: "picker"; title: string; items: PickerItem[]; onSelect: (item: PickerItem) => void }
+  | { type: "prompt"; title: string; placeholder?: string; secret?: boolean; onSubmit: (value: string) => void }
   | { type: "clear" }
   | { type: "exit" }
 
@@ -42,6 +43,7 @@ export interface CommandContext {
   bgTasks:           Array<{ id: string; prompt: string; startedAt: number; status: string; output?: string }>
   showBgTask:        (id: string) => void
   showPicker:        (title: string, items: PickerItem[], onSelect: (item: PickerItem) => void) => void
+  showPrompt:        (title: string, placeholder: string, secret: boolean, onSubmit: (value: string) => void) => void
   restoreSession:    (msgs: Array<{ role: "user" | "assistant"; content: string }>) => void
   messages:          Array<{ role: string; content: string; tool?: string; pending?: boolean; resultContent?: string }>
   checkpoints:       Array<{ mark: number; messages: unknown[]; history: unknown[]; label: string }>

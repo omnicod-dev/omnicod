@@ -85,15 +85,82 @@ const commands: CommandDef[] = [
   // ── /providers ────────────────────────────────────────────────────────────
   {
     name:        "providers",
-    aliases:     ["ps"],
-    description: "Show all providers and API key status",
+    aliases:     ["ps", "provider"],
+    description: "Select provider and configure API key",
     handler: (_args, ctx): CommandResult => {
-      const lines = ProviderRegistry.available().map((p) => {
-        const active = p.id === ctx.provider ? " ◀ active" : ""
-        const key    = p.hasKey ? "✓ key set" : "✗ no key"
-        return `  ${p.id.padEnd(12)} ${p.name.padEnd(20)} ${key}${active}`
-      })
-      return { type: "text", content: "Providers:\n" + lines.join("\n") }
+      const all = ProviderRegistry.available()
+
+      const items: PickerItem[] = all.map((p) => ({
+        id:    p.id,
+        label: p.name,
+        hint:  [
+          p.id === ctx.provider ? "● active" : null,
+          p.hasKey ? "✓ key set" : "✗ no key",
+        ].filter(Boolean).join("  "),
+      }))
+
+      const switchToProvider = (id: string) => {
+        const plugin       = ProviderRegistry.get(id)
+        const defaultModel = plugin.defaultModel()
+        ctx.setProvider(id, defaultModel)
+
+        // Ardından model picker aç
+        ctx.showPicker(
+          `Select model  [${id}]`,
+          plugin.listModels().map((m) => ({
+            id:   m.id,
+            label: m.name,
+            hint: `${Math.round(m.contextWindow / 1000)}K ctx`,
+          })),
+          (item) => ctx.setModel(item.id),
+        )
+      }
+
+      return {
+        type:  "picker",
+        title: "Select Provider",
+        items,
+        onSelect: (item) => {
+          const provider = all.find((p) => p.id === item.id)!
+
+          // Ollama key gerektirmiyor — direkt geç
+          if (item.id === "ollama" || provider.hasKey) {
+            switchToProvider(item.id)
+            return
+          }
+
+          // Key yok — önce key iste
+          const KEY_LABELS: Record<string, string> = {
+            anthropic:  "Anthropic API Key (sk-ant-...)",
+            openai:     "OpenAI API Key (sk-...)",
+            openrouter: "OpenRouter API Key (sk-or-...)",
+            google:     "Google AI API Key",
+            opencode:   "OpenCode API Key",
+          }
+
+          ctx.showPicker(
+            `${provider.name} — No API key configured`,
+            [
+              { id: "enter", label: "Enter API key now",   hint: "Save to ~/.omnicod/config.json" },
+              { id: "skip",  label: "Skip (set env var manually)", hint: `export ${item.id.toUpperCase()}_API_KEY=...` },
+            ],
+            (choice) => {
+              if (choice.id === "skip") return
+              // "prompt" result'ı doğrudan ctx üzerinden açamayız — showPrompt gerekiyor
+              // Geçici çözüm: /config set komutu bilgisini system mesajı olarak ver
+              ctx.showPrompt(
+                KEY_LABELS[item.id] ?? `${provider.name} API Key`,
+                "Paste your API key here",
+                true,
+                (key) => {
+                  setApiKey(item.id, key)
+                  switchToProvider(item.id)
+                },
+              )
+            },
+          )
+        },
+      }
     },
   },
 
