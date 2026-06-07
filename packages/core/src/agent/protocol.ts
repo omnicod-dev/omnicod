@@ -1,0 +1,82 @@
+export type AgentType =
+  | "coordinator" // orchestrator: subagent spawn + send_message — tool call yok
+  | "explore"     // read-only: dosya keşfi, kod arama, web araştırması
+  | "code"        // full: yazma, düzenleme, bash, lsp
+  | "review"      // read-only: kod inceleme, analiz, diagnostics
+  | "test"        // read + bash: test çalıştırma, coverage
+  | "docs"        // read + write: dokümantasyon üretme
+  | "performance" // read + bash: profiling, bundle analizi
+  | "analytics"   // read-only: metrik, event, log analizi
+  | "security"    // read-only: güvenlik taraması, CVE araştırması
+  | "debug"       // read + bash + lsp: hata ayıklama
+  | "refactor"    // read + write + edit + lsp: temiz kod dönüşümü (bash yok — güvenli)
+  | "devops"      // full: CI/CD, Docker, infra-as-code
+  | "design"      // read + write: UI/UX artifact üretimi
+  | "data"        // read + write + bash: veri dönüşümü, SQL, analiz
+
+// Per-type MAX_STEPS — uzun görevler kırpılmaz, kısa görevler boşa tur atmaz
+export const AGENT_MAX_STEPS: Record<AgentType, number> = {
+  coordinator: 10,   // sadece dispatch — LLM çağrısı az
+  explore:     20,
+  code:        50,
+  review:      25,
+  test:        30,
+  docs:        25,
+  performance: 30,
+  analytics:   25,
+  security:    30,
+  debug:       40,
+  refactor:    35,
+  devops:      40,
+  design:      20,
+  data:        35,
+}
+
+// Her agent tipinin erişebileceği tool'lar (ToolRegistry ID'leriyle eşleşmeli)
+// "write" tüm tiplerde var — findings dosyasını workspace'e yazabilmeli
+// "send_message" tüm tiplerde var — sibling agent'lara mesaj yollamak için
+export const AGENT_TYPE_TOOLS: Record<AgentType, string[]> = {
+  coordinator: ["subagent", "send_message"],
+  explore:     ["read", "write", "glob", "grep", "webfetch", "websearch", "send_message"],
+  code:        ["read", "write", "edit", "apply_patch", "glob", "grep", "bash", "lsp", "undo", "send_message"],
+  review:      ["read", "write", "glob", "grep", "lsp", "send_message"],
+  test:        ["read", "write", "glob", "grep", "bash", "send_message"],
+  docs:        ["read", "write", "edit", "glob", "grep", "send_message"],
+  performance: ["read", "write", "glob", "grep", "bash", "send_message"],
+  analytics:   ["read", "write", "glob", "grep", "webfetch", "send_message"],
+  security:    ["read", "write", "glob", "grep", "lsp", "websearch", "send_message"],
+  debug:       ["read", "write", "glob", "grep", "bash", "lsp", "send_message"],
+  refactor:    ["read", "write", "edit", "apply_patch", "glob", "grep", "lsp", "send_message"],
+  devops:      ["read", "write", "edit", "apply_patch", "bash", "glob", "grep", "webfetch", "send_message"],
+  design:      ["read", "write", "glob", "grep", "webfetch", "send_message"],
+  data:        ["read", "write", "bash", "glob", "grep", "send_message"],
+}
+
+// Parent → Worker (request)
+export interface WorkerRequest {
+  id:            string       // agent instance ID
+  agentName:     string       // human-readable role name (routing için)
+  agentType:     AgentType
+  prompt:        string
+  provider:      string
+  model:         string
+  workdir:       string
+  allowedTools:  string[]    // AGENT_TYPE_TOOLS[type] veya config'den
+  sessionId:     string      // worker'ın kendi session ID'si
+  workspacePath: string      // shared workspace dizini (multi-agent iletişim)
+}
+
+// Parent → Worker (control)
+export type WorkerControl =
+  | { type: "abort" }
+  | { type: "inbox_message"; from: string; fromName: string; message: string }
+
+// Worker → Parent
+export type WorkerMessage =
+  | { type: "text";         delta: string }
+  | { type: "tool_call";    id: string; tool: string; args: unknown }
+  | { type: "tool_result";  id: string; result: string }
+  | { type: "done";         result: string; tokens: { input: number; output: number } }
+  | { type: "error";        message: string }
+  | { type: "heartbeat" }
+  | { type: "send_message"; to: string; message: string; from: string; fromName: string }

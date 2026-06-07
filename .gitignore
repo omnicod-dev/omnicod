@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.local
+*.db
+*.db-shm
+*.db-wal
+
+# Platform binary files — built at CI time, not committed
+packages/cli-*/bin/omnicod
+
+# Runtime data
+.omnicod/
+

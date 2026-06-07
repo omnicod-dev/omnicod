@@ -1,0 +1,29 @@
+{
+  "name": "omnicod",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/core",
+    "packages/cli",
+    "packages/omnicod",
+    "packages/cli-linux-x64",
+    "packages/cli-linux-arm64",
+    "packages/cli-darwin-x64",
+    "packages/cli-darwin-arm64"
+  ],
+  "scripts": {
+    "dev": "bun run packages/cli/src/index.ts",
+    "build": "bun run scripts/build.ts",
+    "build:all": "bun run scripts/build-all.ts",
+    "publish:all": "bun run scripts/publish.ts",
+    "publish:dry": "bun run scripts/publish.ts --dry-run",
+    "test": "bun test packages/core/test/*.test.ts packages/cli/test/*.test.tsx",
+    "typecheck": "bunx tsc --noEmit -p packages/core/tsconfig.json && bunx tsc --noEmit -p packages/cli/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.29.0",
+    "ink-testing-library": "^4.0.0",
+    "typescript": "^5.8.0"
+  }
+}

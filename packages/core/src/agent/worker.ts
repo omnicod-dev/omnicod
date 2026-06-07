@@ -1,0 +1,197 @@
+// Bun Worker thread — import.meta.url worker.ts'i gösterir
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const self: { onmessage: any; postMessage(msg: unknown): void }
+
+import { streamText, tool } from "ai"
+import type { CoreMessage } from "ai"
+import { ProviderRegistry }  from "../provider/registry.js"
+import { ToolRegistry }      from "../tool/registry.js"
+import { executeTool }       from "../tool/executor.js"
+import { buildSystemPrompt } from "../skill/injector.js"
+import { getAgentPrompt }    from "./agent-prompts.js"
+import { workspacePrompt }   from "./workspace.js"
+import type { WorkerRequest, WorkerControl, WorkerMessage } from "./protocol.js"
+import { AGENT_MAX_STEPS }   from "./protocol.js"
+
+// Pool'un graceful abort sinyal edebilmesi için tek AbortController
+const abort = new AbortController()
+
+// Inbox: pool'dan gelen mesajlar — streamText turu arasında enjekte edilir
+const inbox: Array<{ from: string; fromName: string; message: string }> = []
+
+// Heartbeat: pool timeout'u resetlemek için periyodik sinyal (15s)
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+const MAX_INBOX_TURNS = 8   // infinite loop koruması
+
+// LLM stream stall: if no token arrives within this window, abort.
+// Prevents the worker hanging when the API stops mid-stream silently.
+const STREAM_STALL_MS = 90_000  // 90 seconds without a token = stalled
+
+self.onmessage = async (event: MessageEvent<WorkerRequest | WorkerControl>) => {
+  const ctrl = event.data as WorkerControl
+
+  if (ctrl.type === "abort") {
+    abort.abort()
+    return
+  }
+
+  if (ctrl.type === "inbox_message") {
+    inbox.push({ from: ctrl.from, fromName: ctrl.fromName, message: ctrl.message })
+    return
+  }
+
+  const req = event.data as WorkerRequest
+
+  // Heartbeat başlat — pool 5dk timeout'u heartbeat'e göre uzatıyor
+  heartbeatTimer = setInterval(() => {
+    send({ type: "heartbeat" })
+  }, 15_000)
+
+  try {
+    const plugin      = ProviderRegistry.get(req.provider)
+    const model       = plugin.getModel(req.model)
+    const baseSystem  = await buildSystemPrompt(req.workdir)
+    const typePrompt  = getAgentPrompt(req.agentType)
+    const toolsPrompt = `## Available Tools\nYou have access to ONLY these tools: ${req.allowedTools.join(", ")}\nCalling any other tool will cause an error.`
+    const wsPrompt    = workspacePrompt(req.workspacePath, req.agentType)
+    const msgPrompt   = `## Agent Communication\nUse send_message to contact sibling agents by role name.\nIncoming messages from other agents appear as <agent-message> in the conversation.`
+    const system      = [toolsPrompt, wsPrompt, msgPrompt, typePrompt, baseSystem].filter(Boolean).join("\n\n---\n\n")
+
+    const allowedSet = new Set(req.allowedTools)
+
+    // send_message için pool callback'i ctx üzerinden ilet
+    const ctxSendMessage = (to: string, message: string) => {
+      send({ type: "send_message", to, message, from: req.id, fromName: req.agentName })
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tools: Record<string, any> = {}
+    for (const def of ToolRegistry.list()) {
+      const captured = def
+      const allowed  = allowedSet.has(def.id)
+      tools[def.id] = tool({
+        description: def.description,
+        parameters:  def.parameters as never,
+        execute: async (args: Record<string, unknown>) => {
+          if (!allowed) {
+            return `Tool '${def.id}' is not available. Available: ${req.allowedTools.join(", ")}`
+          }
+          const ctx = {
+            sessionId:   req.sessionId,
+            workdir:     req.workdir,
+            signal:      abort.signal,
+            sendMessage: ctxSendMessage,
+            isSubagent:  true,
+          }
+          const res = await executeTool(captured, args, ctx)
+          return res.error ? `ERROR: ${res.error}\n${res.output}` : res.output
+        },
+      })
+    }
+
+    const maxSteps = AGENT_MAX_STEPS[req.agentType] ?? 30
+    let messages: CoreMessage[] = [{ role: "user", content: req.prompt }]
+    let finalText  = ""
+    let totalInput = 0
+    let totalOutput = 0
+    let inboxTurn  = 0
+
+    // ── Outer loop: inbox mesajlarını yeni turn olarak enjekte et ────────────
+    // Her outer turn: tam bir streamText session'ı (tool call'ları dahil)
+    outer: while (true) {
+      if (abort.signal.aborted) break
+
+      let turnText = ""
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = streamText({
+        model,
+        system,
+        messages,
+        tools,
+        maxSteps,
+        abortSignal: abort.signal,
+      } as any) as any
+
+      // Stall watchdog: reset on every event from the stream.
+      // If nothing arrives for STREAM_STALL_MS, abort the whole worker.
+      let stallTimer = setTimeout(() => {
+        if (!abort.signal.aborted) {
+          abort.abort()
+          send({ type: "error", message: `LLM stream stalled for ${STREAM_STALL_MS / 1000}s — agent aborted to prevent freeze` })
+        }
+      }, STREAM_STALL_MS)
+
+      for await (const part of result.fullStream) {
+        // Reset stall watchdog on any activity
+        clearTimeout(stallTimer)
+        stallTimer = setTimeout(() => {
+          if (!abort.signal.aborted) {
+            abort.abort()
+            send({ type: "error", message: `LLM stream stalled for ${STREAM_STALL_MS / 1000}s — agent aborted to prevent freeze` })
+          }
+        }, STREAM_STALL_MS)
+
+        if (abort.signal.aborted) { clearTimeout(stallTimer); break outer }
+
+        if (part.type === "text-delta") {
+          const delta = (part.textDelta as string) || ""
+          if (delta) { turnText += delta; send({ type: "text", delta }) }
+        } else if (part.type === "tool-call") {
+          send({ type: "tool_call", id: part.toolCallId, tool: part.toolName, args: part.args })
+        } else if (part.type === "tool-result") {
+          send({ type: "tool_result", id: part.toolCallId, result: String(part.result) })
+        } else if (part.type === "error") {
+          clearTimeout(stallTimer)
+          throw new Error((part as any).error?.message || String((part as any).error))
+        }
+      }
+      clearTimeout(stallTimer)
+
+      if (turnText) finalText = turnText   // final answer = son turn'ün text'i
+
+      const usage = await result.usage as Record<string, number>
+      totalInput  += usage["promptTokens"]     ?? 0
+      totalOutput += usage["completionTokens"] ?? 0
+
+      // Conversation history'yi güncelle — bir sonraki turn için context
+      const response = await result.response
+      messages = [...messages, ...(response.messages as CoreMessage[])]
+
+      // ── Inbox kontrolü: yeni mesaj var mı? ─────────────────────────────────
+      if (inbox.length === 0 || inboxTurn >= MAX_INBOX_TURNS) break
+
+      // Inbox'taki tüm mesajları tek bir user mesajı olarak enjekte et
+      const inboxContent = inbox
+        .map((m) => `<agent-message from="${m.fromName}">\n${m.message}\n</agent-message>`)
+        .join("\n\n")
+      inbox.length = 0  // flush
+      inboxTurn++
+
+      messages.push({ role: "user", content: inboxContent })
+      // inbox mesajlarını assistant görmeli ama UI'a text olarak gitmemeli
+    }
+
+    if (abort.signal.aborted) {
+      send({ type: "error", message: "Subagent cancelled" })
+      return
+    }
+
+    send({
+      type:   "done",
+      result: finalText,
+      tokens: { input: totalInput, output: totalOutput },
+    })
+
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    send({ type: "error", message: abort.signal.aborted ? "Subagent cancelled" : msg })
+  } finally {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null }
+  }
+}
+
+function send(msg: WorkerMessage) {
+  self.postMessage(msg)
+}

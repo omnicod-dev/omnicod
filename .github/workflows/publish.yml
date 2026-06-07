@@ -1,0 +1,82 @@
+name: Publish to npm
+
+# Triggers on version tags: v0.1.0, v1.2.3, etc.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-publish:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      # Cross-compile all 4 platform binaries from a single Linux runner.
+      # Bun downloads the target-platform executable automatically.
+      - name: Build all platform binaries
+        run: bun run scripts/build-all.ts
+
+      # Verify the Linux x64 binary actually runs on this runner
+      - name: Smoke test (linux-x64)
+        run: ./dist/omnicod-linux-x64 --version
+
+      - name: Setup Node.js (for npm publish)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Sync the version from the git tag to all package.json files
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Publishing version $VERSION"
+          for pkg in packages/cli packages/cli-linux-x64 packages/cli-linux-arm64 packages/cli-darwin-x64 packages/cli-darwin-arm64; do
+            bun x json -I -f $pkg/package.json -e "this.version='$VERSION'"
+            # Also sync optionalDependencies versions in the main cli package
+          done
+          # Update optionalDependencies in cli/package.json to match
+          bun x json -I -f packages/cli/package.json -e "
+            Object.keys(this.optionalDependencies || {}).forEach(k => {
+              this.optionalDependencies[k] = '$VERSION'
+            })
+          "
+
+      # Platform packages first, main package last
+      - name: Publish platform packages
+        run: |
+          for pkg in cli-linux-x64 cli-linux-arm64 cli-darwin-x64 cli-darwin-arm64; do
+            cd packages/$pkg
+            npm publish --access public
+            cd ../..
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish main package
+        run: |
+          cd packages/cli
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/omnicod-linux-x64
+            dist/omnicod-linux-arm64
+            dist/omnicod-darwin-x64
+            dist/omnicod-darwin-arm64
+          generate_release_notes: true

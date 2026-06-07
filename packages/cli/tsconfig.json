@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "paths": {
+      "@omnicod/core": ["../core/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*", "../core/src/**/*"]
+}

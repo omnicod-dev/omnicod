@@ -1,0 +1,19 @@
+{
+  "name": "@omnicod/cli-darwin-x64",
+  "version": "1.0.0",
+  "description": "OmniCod CLI binary for macOS x64 (Intel)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omnicod/omnicod"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/omnicod"
+  ]
+}

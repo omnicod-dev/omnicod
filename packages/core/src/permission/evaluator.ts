@@ -1,0 +1,65 @@
+import type { PermissionAction, PermissionRule } from "./types.js"
+
+// Varsayılan kurallar — config ile override edilebilir
+const DEFAULT_RULES: PermissionRule[] = [
+  // ── Destructive shell commands ────────────────────────────────────────────
+  { tool: "shell", pattern: "sudo *",     action: "deny",   scope: "global" },
+  { tool: "shell", pattern: "rm -rf *",   action: "ask",    scope: "global" },
+  { tool: "shell", pattern: "rm *",       action: "ask",    scope: "global" },
+  { tool: "shell", pattern: "curl *",     action: "ask",    scope: "global" },
+  { tool: "shell", pattern: "wget *",     action: "ask",    scope: "global" },
+
+  // ── Sensitive write paths ─────────────────────────────────────────────────
+  { tool: "write", pattern: "/etc/*",     action: "deny",   scope: "global" },
+  { tool: "write", pattern: "/usr/*",     action: "deny",   scope: "global" },
+  { tool: "write", pattern: "/sys/*",     action: "deny",   scope: "global" },
+
+  // ── Always-safe read-only tools ───────────────────────────────────────────
+  { tool: "read",       pattern: "*", action: "allow", scope: "global" },
+  { tool: "glob",       pattern: "*", action: "allow", scope: "global" },
+  { tool: "grep",       pattern: "*", action: "allow", scope: "global" },
+  { tool: "websearch",  pattern: "*", action: "allow", scope: "global" },
+  { tool: "webfetch",   pattern: "*", action: "allow", scope: "global" },
+  { tool: "lsp",        pattern: "*", action: "allow", scope: "global" },
+
+  // ── Agent / coordination tools (no destructive side-effects) ─────────────
+  { tool: "subagent",       pattern: "*", action: "allow", scope: "global" },
+  { tool: "task",           pattern: "*", action: "allow", scope: "global" },
+  { tool: "task_create",    pattern: "*", action: "allow", scope: "global" },
+  { tool: "task_update",    pattern: "*", action: "allow", scope: "global" },
+  { tool: "task_complete",  pattern: "*", action: "allow", scope: "global" },
+
+  // ── Utility tools ─────────────────────────────────────────────────────────
+  { tool: "memory",     pattern: "*", action: "allow", scope: "global" },
+  { tool: "todo",       pattern: "*", action: "allow", scope: "global" },
+  { tool: "question",   pattern: "*", action: "allow", scope: "global" },
+]
+
+const rules: PermissionRule[] = [...DEFAULT_RULES]
+
+function matchWildcard(pattern: string, value: string): boolean {
+  if (pattern === "*") return true
+  if (!pattern.includes("*")) return pattern === value
+  const re = new RegExp("^" + pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$")
+  return re.test(value)
+}
+
+export const PermissionEvaluator = {
+  evaluate(tool: string, pattern: string): PermissionAction {
+    // En spesifik eşleşen kuralı bul (önce project/session, sonra global)
+    const matches = rules.filter(
+      (r) => (r.tool === tool || r.tool === "*") && matchWildcard(r.pattern, pattern),
+    )
+    if (matches.length === 0) return "ask"
+    // Son eşleşen kural kazanır (en altta olan en spesifik)
+    return matches[matches.length - 1]!.action
+  },
+
+  addRule(rule: PermissionRule): void {
+    rules.push(rule)
+  },
+
+  loadRules(newRules: PermissionRule[]): void {
+    rules.push(...newRules)
+  },
+}

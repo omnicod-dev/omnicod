@@ -1,0 +1,43 @@
+{
+  "name": "@omnicod/core",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "OmniCod core engine — agent loop, tools, sessions, providers",
+  "keywords": [
+    "ai",
+    "llm",
+    "agent",
+    "terminal",
+    "claude",
+    "openai"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omnicod/omnicod"
+  },
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "test": "bun test ../../packages/core/test/"
+  },
+  "dependencies": {
+    "ai": "^4.3.16",
+    "@ai-sdk/anthropic": "^1.1.5",
+    "@ai-sdk/openai": "^1.1.5",
+    "@ai-sdk/google": "^1.1.5",
+    "drizzle-orm": "^0.40.0",
+    "hono": "^4.7.0",
+    "js-tiktoken": "^1.0.16",
+    "zod": "^3.24.0",
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.0"
+  }
+}

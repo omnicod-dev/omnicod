@@ -1,0 +1,45 @@
+{
+  "name": "@omnicod/cli",
+  "version": "1.0.0",
+  "private": false,
+  "description": "OmniCod — Terminal AI coding assistant",
+  "keywords": [
+    "ai",
+    "cli",
+    "coding-assistant",
+    "claude",
+    "terminal",
+    "llm",
+    "agent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/omnicod/omnicod"
+  },
+  "homepage": "https://github.com/omnicod/omnicod",
+  "bin": {
+    "omnicod": "./bin/omnicod"
+  },
+  "files": [
+    "bin/omnicod",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@omnicod/cli-linux-x64": "1.0.0",
+    "@omnicod/cli-linux-arm64": "1.0.0",
+    "@omnicod/cli-darwin-x64": "1.0.0",
+    "@omnicod/cli-darwin-arm64": "1.0.0"
+  },
+  "scripts": {
+    "dev": "bun run ../cli/src/index.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^18.3.0",
+    "typescript": "^5.8.0"
+  }
+}

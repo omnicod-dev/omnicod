@@ -1,0 +1,43 @@
+import type { z } from "zod"
+
+export type ToolCategory = "read" | "write" | "execute" | "network" | "system"
+export type RiskLevel    = "low" | "medium" | "high" | "critical"
+
+export interface ToolSpec {
+  category:              ToolCategory
+  riskLevel:             RiskLevel
+  requiresConfirmation?: boolean | ((args: Record<string, unknown>) => boolean)
+  permissionSummary?:    string
+}
+
+export interface ToolContext {
+  sessionId:    string
+  workdir:      string
+  signal:       AbortSignal
+  provider?:    string
+  model?:       string
+  /** Araç çalışırken canlı çıktı chunk'larını iletir (bash streaming için) */
+  onChunk?:     (chunk: string) => void
+  // Agent worker'ları için — pool üzerinden başka worker'a mesaj yollar
+  sendMessage?: (to: string, message: string) => void
+  /**
+   * true = Bun Worker thread içinde çalışıyoruz.
+   * PermissionGate her worker'da izole instance'dır, TUI'ya ulaşamaz.
+   * Bu flag set ise "ask" kararları workdir kapsamında otomatik onaylanır;
+   * "deny" (örn. .omnicod/*, .git/*) her zaman bloke eder.
+   */
+  isSubagent?: boolean
+}
+
+export interface ExecuteResult {
+  output: string
+  error?: string
+}
+
+export interface ToolDef {
+  id:          string
+  description: string
+  parameters:  z.AnyZodObject
+  spec?:       ToolSpec
+  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ExecuteResult>
+}

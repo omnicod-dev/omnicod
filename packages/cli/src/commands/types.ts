@@ -1,0 +1,61 @@
+export interface PickerItem {
+  id:    string
+  label: string
+  hint?: string
+}
+
+export type CommandResult =
+  | { type: "text";   content: string; color?: string }
+  | { type: "error";  message: string }
+  | { type: "picker"; title: string; items: PickerItem[]; onSelect: (item: PickerItem) => void }
+  | { type: "clear" }
+  | { type: "exit" }
+
+export interface CommandDef {
+  name:        string
+  aliases?:    string[]
+  description: string
+  usage?:      string
+  handler:     (args: string[], ctx: CommandContext) => CommandResult | Promise<CommandResult>
+}
+
+export interface CommandContext {
+  provider:         string
+  model:            string
+  effort?:          number
+  workdir:          string
+  skills:           string[]
+  currentTheme:     string
+  isUndercover:     boolean
+  coordinatorMode:  boolean
+  activeAgent:      string
+  setAgent:         (id: string) => void
+  setProvider:      (p: string, m: string) => void
+  setModel:         (m: string) => void
+  setEffort:        (effort: number | undefined) => void
+  setTheme:         (name: string) => void
+  setWorkdir:       (path: string) => void
+  openBtw:          (question: string) => void
+  toggleUndercover:  () => void
+  toggleCoordinator: () => void
+  sendToBackground:  () => void
+  bgTasks:           Array<{ id: string; prompt: string; startedAt: number; status: string; output?: string }>
+  showBgTask:        (id: string) => void
+  showPicker:        (title: string, items: PickerItem[], onSelect: (item: PickerItem) => void) => void
+  restoreSession:    (msgs: Array<{ role: "user" | "assistant"; content: string }>) => void
+  messages:          Array<{ role: string; content: string; tool?: string; pending?: boolean; resultContent?: string }>
+  checkpoints:       Array<{ mark: number; messages: unknown[]; history: unknown[]; label: string }>
+  popCheckpoints:    (n: number) => void
+  branches:          Array<{ id: string; name: string; createdAt: number; messageCount: number }>
+  activeBranchIdx:   number
+  createBranch:      (name?: string) => void
+  switchBranch:      (idx: number) => void
+  deleteBranch:      (name: string) => void
+  watchedPaths:      Array<{ path: string; prompt?: string }>
+  addWatch:          (path: string, prompt?: string) => void
+  removeWatch:       (path?: string) => void
+  contextWindow:     number
+  replayTo:          (idx: number) => void
+  tokens?:           { input: number; output: number }
+  openDesign:        () => void
+}
