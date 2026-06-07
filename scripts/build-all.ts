@@ -53,8 +53,8 @@ for (const { id, bunTarget } of targets) {
     "--target",  bunTarget,
     "--outfile", outFile,
     "--minify",
+    "--define", "process.env.DEV=\"false\"",
     "--external", "fsevents",
-    "--external", "react-devtools-core",
   ], {
     cwd:    ROOT,
     stdout: "inherit",
