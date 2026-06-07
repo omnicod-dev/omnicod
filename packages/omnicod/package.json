@@ -25,10 +25,10 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@omnicod/cli-linux-x64": "1.0.0",
-    "@omnicod/cli-linux-arm64": "1.0.0",
-    "@omnicod/cli-darwin-x64": "1.0.0",
-    "@omnicod/cli-darwin-arm64": "1.0.0"
+    "@omnicod/cli-linux-x64": "1.0.1",
+    "@omnicod/cli-linux-arm64": "1.0.1",
+    "@omnicod/cli-darwin-x64": "1.0.1",
+    "@omnicod/cli-darwin-arm64": "1.0.1"
   },
   "engines": {
     "node": ">=20"

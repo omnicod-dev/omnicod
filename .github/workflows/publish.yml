@@ -51,12 +51,11 @@ jobs:
             VERSION="${GITHUB_REF_NAME#v}"
           fi
           echo "Publishing version $VERSION"
-          for pkg in packages/cli packages/cli-linux-x64 packages/cli-linux-arm64 packages/cli-darwin-x64 packages/cli-darwin-arm64; do
+          for pkg in packages/omnicod packages/cli-linux-x64 packages/cli-linux-arm64 packages/cli-darwin-x64 packages/cli-darwin-arm64; do
             bun x json -I -f $pkg/package.json -e "this.version='$VERSION'"
-            # Also sync optionalDependencies versions in the main cli package
           done
-          # Update optionalDependencies in cli/package.json to match
-          bun x json -I -f packages/cli/package.json -e "
+          # Sync optionalDependencies in the wrapper package to match
+          bun x json -I -f packages/omnicod/package.json -e "
             Object.keys(this.optionalDependencies || {}).forEach(k => {
               this.optionalDependencies[k] = '$VERSION'
             })
@@ -75,7 +74,7 @@ jobs:
 
       - name: Publish main package
         run: |
-          cd packages/cli
+          cd packages/omnicod
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

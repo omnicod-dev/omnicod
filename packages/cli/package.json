@@ -1,5 +1,5 @@
 {
-  "name": "omnicod",
+  "name": "@omnicod/cli",
   "version": "1.0.1",
   "private": false,
   "description": "OmniCod — Terminal AI coding assistant",
