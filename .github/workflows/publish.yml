@@ -1,10 +1,15 @@
 name: Publish to npm
 
-# Triggers on version tags: v0.1.0, v1.2.3, etc.
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 1.0.1)"
+        required: true
+        default: "1.0.1"
 
 jobs:
   build-and-publish:
@@ -37,10 +42,14 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      # Sync the version from the git tag to all package.json files
+      # Sync the version from the git tag (or workflow_dispatch input)
       - name: Sync version from tag
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
           echo "Publishing version $VERSION"
           for pkg in packages/cli packages/cli-linux-x64 packages/cli-linux-arm64 packages/cli-darwin-x64 packages/cli-darwin-arm64; do
             bun x json -I -f $pkg/package.json -e "this.version='$VERSION'"
@@ -72,6 +81,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           files: |
