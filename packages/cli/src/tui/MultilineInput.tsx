@@ -301,6 +301,22 @@ export function MultilineInput({ value, onChange, onSubmit, disabled, history }:
       return
     }
 
+    // ── Ctrl+Backspace / Ctrl+W: kelime sil ──────────────────────────────
+    // \x17 = Ctrl+W (Unix), \x1b\x7f = Ctrl+Backspace (bazı terminaller)
+    if ((key.backspace && key.ctrl) || input === "\x17" || input === "\x1b\x7f") {
+      const row = cursor.row
+      const col = cursor.col
+      setLines(prev => {
+        const next  = [...prev]
+        const line  = next[row] ?? ""
+        const newCol = wordLeft(line, col)
+        next[row] = line.slice(0, newCol) + line.slice(col)
+        setCursor({ row, col: newCol })
+        return next
+      })
+      return
+    }
+
     // ── Backspace ─────────────────────────────────────────────────────────
     if (key.backspace || key.delete) {
       // Cursor'u önceden oku — setLines içinde async state olmasın

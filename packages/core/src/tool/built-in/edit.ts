@@ -29,7 +29,7 @@ export const editTool: ToolDef = {
 
 
     const count = content.split(oldString).length - 1
-    if (count === 0) return { output: "", error: "old_string not found in file" }
+    if (count === 0) return { output: "", error: "old_string not found in file. You likely pattern-completed the content from memory instead of reading it. Use the `read` tool to see the actual current content, then retry with an exact verbatim match." }
     if (count > 1)   return { output: "", error: `old_string found ${count} times — must be unique` }
 
     const updated = content.replace(oldString, newString)

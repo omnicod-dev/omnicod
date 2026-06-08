@@ -51,46 +51,60 @@ export const TERMINAL_SCENARIOS = [
 
 export const FEATURES = [
   {
-    icon: "🤖",
+    icon: "agents",
     title: "Multi-Agent Orchestration",
     description: "9 specialist agents running in isolated worker threads. Explore, code, review, test, docs, security, debug, performance, analytics — each a domain expert.",
     tag: "Architecture",
     color: "#818cf8",
   },
   {
-    icon: "🧠",
+    icon: "skills",
     title: "218+ Contextual Skills",
     description: "OmniCod scans your project before you say a word — framework, language, config, conventions. The right context is injected automatically.",
     tag: "Intelligence",
     color: "#a78bfa",
   },
   {
-    icon: "🛡️",
+    icon: "classifier",
     title: "Bash Classifier",
     description: "Every shell command is analyzed before execution. Safe commands run instantly. Dangerous ones (rm -rf, format) trigger strict confirmation with red warnings.",
     tag: "Security",
     color: "#f59e0b",
   },
   {
-    icon: "📦",
+    icon: "sandbox",
     title: "Sandbox Execution",
     description: "Risky executables — node scripts, python, ruby, bash — run in Docker isolation. Your machine stays safe regardless of what the AI tries to run.",
     tag: "Security",
     color: "#ff6b6b",
   },
   {
-    icon: "🔌",
+    icon: "mcp",
     title: "MCP Client",
     description: "Drop your claude_desktop_config.json and every MCP server you already use works immediately — filesystem, GitHub, Postgres, Slack, browser automation.",
     tag: "Integration",
     color: "#4eba65",
   },
   {
-    icon: "🎨",
+    icon: "design",
     title: "Design Agent Wizard",
     description: "150+ design systems, 111 skill templates. Describe your UI idea, pick a system and skill, and a complete implementation prompt is built for you.",
     tag: "Design",
     color: "#06b6d4",
+  },
+  {
+    icon: "windows",
+    title: "Windows Native",
+    description: "A real compiled binary for Windows x64 — no WSL, no extra runtime, no PowerShell gymnastics. Shell detection auto-picks Git Bash, MSYS2, or PowerShell as fallback.",
+    tag: "Platform",
+    color: "#38bdf8",
+  },
+  {
+    icon: "memory",
+    title: "Persistent Memory",
+    description: "Project decisions, coding preferences, and team conventions stored in a local DB and recalled per-session. The AI remembers what you told it — across every restart.",
+    tag: "Intelligence",
+    color: "#fb7185",
   },
 ]
 

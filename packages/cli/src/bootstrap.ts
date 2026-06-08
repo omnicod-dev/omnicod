@@ -1,4 +1,4 @@
-import { createApp, ProviderRegistry, mcpManager, loadCustomTools } from "@omnicod/core"
+import { createApp, ProviderRegistry, mcpManager, loadCustomTools, loadUserHooks } from "@omnicod/core"
 import { getOrCreateToken, setActiveToken } from "@omnicod/core"
 import type { OmniCodConfig } from "./config/types.js"
 
@@ -13,10 +13,10 @@ export async function bootstrap(cfg: OmniCodConfig = {}): Promise<{ defaultProvi
 
   if (ready.length > 0) {
     console.error(`[omnicod] Providers: ${ready.join(", ")} ✓`)
-    console.error(`[omnicod] Active: ${defaultProvider}  |  /provider ile değiştir`)
+    console.error(`[omnicod] Active: ${defaultProvider}  |  use /providers to switch`)
   } else {
-    console.error("[omnicod] Uyarı: API key bulunamadı")
-    console.error(`[omnicod] Gerekli: ${missing.join(", ")}`)
+    console.error("[omnicod] Warning: no API key found")
+    console.error(`[omnicod] Set one of: ${missing.join(", ")}`)
   }
 
   const serverToken = getOrCreateToken()
@@ -28,6 +28,9 @@ export async function bootstrap(cfg: OmniCodConfig = {}): Promise<{ defaultProvi
     Bun.serve({ port, hostname: "127.0.0.1", fetch: app.fetch })
     console.error(`[omnicod] Server: http://127.0.0.1:${port}`)
   }
+
+  // Load user-defined hooks from ~/.omnicod/hooks.json + .omnicod/hooks.json
+  loadUserHooks(process.cwd())
 
   // MCP server'larını başlat
   mcpManager.init(process.cwd()).catch(() => {})

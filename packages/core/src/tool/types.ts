@@ -39,5 +39,7 @@ export interface ToolDef {
   description: string
   parameters:  z.AnyZodObject
   spec?:       ToolSpec
+  /** Per-tool execution timeout in ms. Falls back to TOOL_EXEC_TIMEOUT_MS (2 min) when unset. */
+  timeoutMs?:  number
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ExecuteResult>
 }

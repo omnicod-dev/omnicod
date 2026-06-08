@@ -125,17 +125,17 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
   const autopilotRef = useRef(false)
   useEffect(() => { autopilotRef.current = autopilotMode }, [autopilotMode])
 
-  // Mouse scroll — scrolls through Picker items when picker is open
+  // Mouse tracking is only active when an overlay (Picker/PermissionPrompt/QuestionPrompt)
+  // is open. This lets the terminal emulator handle native scroll (Picker navigation
+  // works via arrow-key injection below) while keeping scrollback free during streaming.
+  const mouseTrackingActive = picker !== null || permission !== null || question !== null
+
   useMouseEvents((e) => {
     if (e.type !== "scroll") return
-    // Picker navigasyonu: scroll ile item seçimini değiştir
-    // (Picker kendi state'ini yönetiyor — burada sadece synthetic arrow key simule et)
-    if (e.button === "scroll-up") {
-      process.stdin.emit("data", "\x1b[A")  // up arrow
-    } else if (e.button === "scroll-down") {
-      process.stdin.emit("data", "\x1b[B")  // down arrow
-    }
-  })
+    // Inject synthetic arrow keys so Picker responds to mouse wheel
+    if (e.button === "scroll-up")   process.stdin.emit("data", "\x1b[A")
+    if (e.button === "scroll-down") process.stdin.emit("data", "\x1b[B")
+  }, mouseTrackingActive)
 
   // Quick Search (Ctrl+F)
   const [quickSearchOpen, setQuickSearchOpen] = useState(false)
@@ -916,6 +916,8 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
         onCompaction: () => {
           setWasCompacted(true)
           setTimeout(() => setWasCompacted(false), 8000)
+          // Allow end-of-session extraction to run again after compaction
+          extractedRef.current = false
         },
         onFinish: ({ tokens: t, text: finalText, newMessages }) => {
           if (streamTimerRef.current) { clearTimeout(streamTimerRef.current); streamTimerRef.current = null }
@@ -1188,9 +1190,9 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
 
         {attachInput && (
           <Box borderStyle="round" borderColor="yellow" paddingX={1}>
-            <Text color="yellow">📎 Dosya yolu: </Text>
+            <Text color="yellow">📎 File path: </Text>
             <Text>{attachPath}</Text>
-            <Text color="gray"> (Enter: ekle  Esc: iptal)</Text>
+            <Text color="gray"> (Enter: attach  Esc: cancel)</Text>
           </Box>
         )}
 
@@ -1257,6 +1259,7 @@ export function App({ initialProvider, initialModel, workdir, system, undercover
           taskPanelOpen={taskPanelOpen}
           effort={effort}
           autopilotMode={autopilotMode}
+          cols={termCols}
           {...(branch !== undefined ? { branch } : {})}
           {...(() => {
             try {

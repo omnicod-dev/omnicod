@@ -45,63 +45,73 @@ process.on("unhandledRejection", (r) => {
 const flags   = parseFlags()
 const workdir = process.cwd()
 
-// ~/.omnicod/config.json'dan API key'leri yükle (env var yoksa)
+// Load API keys from ~/.omnicod/config.json into process.env (only if not already set by shell)
 const omniCfg = loadOmniConfig(workdir)
+const PROVIDER_ENV_MAP: Record<string, string[]> = {
+  anthropic:  ["ANTHROPIC_API_KEY"],
+  openai:     ["OPENAI_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY"],
+  google:     ["GOOGLE_GENERATIVE_AI_API_KEY"],
+  opencode:   ["OPENCODE_API_KEY"],
+  xai:        ["XAI_API_KEY"],
+  azure:      ["AZURE_OPENAI_API_KEY"],
+  bedrock:    ["AWS_ACCESS_KEY_ID"],
+  ollama:     [],
+}
 for (const [provider, val] of Object.entries(omniCfg.providers ?? {})) {
-  if (val.apiKey) {
-    const envMap: Record<string, string> = {
-      anthropic:  "ANTHROPIC_API_KEY",
-      openai:     "OPENAI_API_KEY",
-      openrouter: "OPENROUTER_API_KEY",
-      google:     "GOOGLE_GENERATIVE_AI_API_KEY",
-      opencode:   "OPENCODE_API_KEY",
-    }
-    const envVar = envMap[provider]
-    if (envVar && !process.env[envVar]) process.env[envVar] = val.apiKey
+  if (!val.apiKey) continue
+  const envVars = PROVIDER_ENV_MAP[provider] ?? [`${provider.toUpperCase()}_API_KEY`]
+  for (const envVar of envVars) {
+    if (!process.env[envVar]) process.env[envVar] = val.apiKey
+  }
+  // Azure also needs baseUrl for the endpoint
+  if (provider === "azure" && val.baseUrl && !process.env["AZURE_OPENAI_ENDPOINT"]) {
+    process.env["AZURE_OPENAI_ENDPOINT"] = val.baseUrl
   }
 }
 
 // --version
 if (flags.version) {
-  console.log("OmniCod v1.0.2")
+  console.log("OmniCod v1.0.3")
   process.exit(0)
 }
 
 // --help
 if (flags.help) {
   console.log(`
-OmniCod v1.0.2 — Terminal AI asistanı
+OmniCod v1.0.3 — Terminal AI assistant
 
-Kullanım:
-  omnicod [seçenekler]
+Usage:
+  omnicod [options]
 
-Seçenekler:
-  -p, --provider <id>   Provider seç (anthropic, openai, openrouter, google, opencode, ollama)
-  -m, --model <id>      Model seç
-  -s, --system <text>   System prompt
-      --undercover      Undercover mod (Yapay zeka kimliğini gizle)
-      --stream          Streaming etkinleştir
-      --no-stream       Streaming devre dışı
-  -v, --version         Versiyon göster
-  -h, --help            Bu yardım
+Options:
+  -p, --provider <id>   Select provider (anthropic, openai, openrouter, google, opencode, ollama, xai, azure, bedrock)
+  -m, --model <id>      Select model
+  -s, --system <text>   Override system prompt
+      --undercover      Undercover mode (hides AI traces in commits)
+      --stream          Enable streaming
+      --no-stream       Disable streaming
+  -v, --version         Show version
+  -h, --help            Show this help
 
-Slash komutları (TUI içinde):
-  /help      Tüm komutları göster
-  /models    Model seç (picker)
-  /model     Modeli değiştir
-  /providers Provider listesi
-  /provider  Provider değiştir (picker)
-  /clear     Chat temizle
-  /session   Session bilgisi
-  /exit      Çıkış
+Slash commands (inside TUI):
+  /help      List all commands
+  /models    Select model (picker)
+  /providers Select provider (picker)
+  /clear     Clear chat history
+  /session   Show session info
+  /exit      Exit
 
-Ortam değişkenleri:
-  ANTHROPIC_API_KEY     Anthropic key
-  OPENAI_API_KEY        OpenAI key
-  OPENROUTER_API_KEY    OpenRouter key
-  GOOGLE_API_KEY        Google key
-  OPENCODE_API_KEY      OpenCode Zen key
-  OMNICOD_PROVIDER      Varsayılan provider
+Environment variables:
+  ANTHROPIC_API_KEY           Anthropic
+  OPENAI_API_KEY              OpenAI
+  OPENROUTER_API_KEY          OpenRouter
+  GOOGLE_API_KEY              Google
+  OPENCODE_API_KEY            OpenCode / Zenmux
+  XAI_API_KEY                 xAI (Grok)
+  AZURE_OPENAI_API_KEY        Azure OpenAI
+  AWS_ACCESS_KEY_ID           AWS Bedrock
+  OMNICOD_PROVIDER            Default provider override
 `)
   process.exit(0)
 }
@@ -133,7 +143,7 @@ if (process.stdin.isTTY) {
 } else {
   // Pipe modu — tek seferlik
   const input = (await Bun.stdin.text()).trim()
-  if (!input) { console.error("[omnicod] Girdi yok"); process.exit(1) }
+  if (!input) { console.error("[omnicod] No input received"); process.exit(1) }
 
   process.stdout.write("\n")
   try {

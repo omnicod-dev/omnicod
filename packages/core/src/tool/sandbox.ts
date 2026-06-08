@@ -1,3 +1,5 @@
+import { getShell } from "../util/shell.js"
+
 const SHELL_TIMEOUT_MS = 30_000
 const OUTPUT_MAX_CHARS = 50_000
 
@@ -26,7 +28,8 @@ export async function sandboxExec(command: string, workdir: string): Promise<San
   const timer = setTimeout(() => controller.abort(), SHELL_TIMEOUT_MS)
 
   try {
-    const proc = Bun.spawn(["bash", "-c", command], {
+    const sh = getShell()
+    const proc = Bun.spawn([sh.executable, sh.flag, command], {
       cwd:    workdir,
       env:    filterEnv(process.env),
       stdout: "pipe",

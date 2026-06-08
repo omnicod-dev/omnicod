@@ -42,10 +42,11 @@ if (devtoolsPaths.length > 0) {
 }
 
 const TARGETS = [
-  { id: "linux-x64",    bunTarget: "bun-linux-x64" },
-  { id: "linux-arm64",  bunTarget: "bun-linux-arm64" },
-  { id: "darwin-x64",   bunTarget: "bun-darwin-x64" },
-  { id: "darwin-arm64", bunTarget: "bun-darwin-arm64" },
+  { id: "linux-x64",    bunTarget: "bun-linux-x64",    exe: false },
+  { id: "linux-arm64",  bunTarget: "bun-linux-arm64",  exe: false },
+  { id: "darwin-x64",   bunTarget: "bun-darwin-x64",   exe: false },
+  { id: "darwin-arm64", bunTarget: "bun-darwin-arm64", exe: false },
+  { id: "win32-x64",    bunTarget: "bun-windows-x64",  exe: true  },
 ]
 
 const filter = process.argv[2]
@@ -59,8 +60,9 @@ if (targets.length === 0) {
 
 let allOk = true
 
-for (const { id, bunTarget } of targets) {
-  const outFile = join(DIST, `omnicod-${id}`)
+for (const { id, bunTarget, exe } of targets) {
+  const outSuffix = exe ? `omnicod-${id}.exe` : `omnicod-${id}`
+  const outFile   = join(DIST, outSuffix)
   console.log(`\n▶ Building ${id}…`)
 
   const result = Bun.spawnSync([
@@ -82,16 +84,18 @@ for (const { id, bunTarget } of targets) {
     continue
   }
 
-  chmodSync(outFile, 0o755)
+  // chmod is a no-op on Windows binaries but harmless to attempt on Linux/macOS host
+  try { chmodSync(outFile, 0o755) } catch { /* Windows .exe doesn't need chmod */ }
 
   // Copy into platform package so `npm publish` picks it up
-  const pkgBin = join(ROOT, `packages/cli-${id}/bin`)
+  const pkgBin  = join(ROOT, `packages/cli-${id}/bin`)
+  const binName = exe ? "omnicod.exe" : "omnicod"
   mkdirSync(pkgBin, { recursive: true })
-  copyFileSync(outFile, join(pkgBin, "omnicod"))
-  chmodSync(join(pkgBin, "omnicod"), 0o755)
+  copyFileSync(outFile, join(pkgBin, binName))
+  try { chmodSync(join(pkgBin, binName), 0o755) } catch { /* Windows .exe */ }
 
   const size = ((await Bun.file(outFile).arrayBuffer()).byteLength / 1024 / 1024).toFixed(1)
-  console.log(`✓ ${id}  →  dist/omnicod-${id}  (${size} MB)`)
+  console.log(`✓ ${id}  →  dist/${outSuffix}  (${size} MB)`)
 }
 
 if (!allOk) process.exit(1)

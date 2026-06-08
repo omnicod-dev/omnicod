@@ -2,6 +2,7 @@ import { z } from "zod"
 import { ptyManager } from "../../pty/manager.js"
 import { classifyCommand } from "../../terminal/classifier.js"
 import { shouldUseSandbox, startSandboxedProcess } from "../../terminal/sandbox.js"
+import { getShell } from "../../util/shell.js"
 import type { ToolDef, ToolContext, ExecuteResult } from "../types.js"
 
 export const bashTool: ToolDef = {
@@ -55,14 +56,14 @@ Actions:
 
     const analysis = classifyCommand(command)
     const sandboxed = shouldUseSandbox(command, analysis)
+    const sh = getShell()
 
     let session
     try {
       if (sandboxed) {
-        // cmdArgs olarak ["-c", command] gönderiyoruz, command'ı "bash" olarak alıyoruz.
-        session = await startSandboxedProcess("bash", ["-c", command], ctx.workdir, {})
+        session = await startSandboxedProcess(sh.executable, [sh.flag, command], ctx.workdir, {})
       } else {
-        session = await ptyManager.create("bash", ["-c", command], ctx.workdir, {})
+        session = await ptyManager.create(sh.executable, [sh.flag, command], ctx.workdir, {})
       }
     } catch (err) {
       return { output: "", error: `Failed to start process: ${err instanceof Error ? err.message : String(err)}` }

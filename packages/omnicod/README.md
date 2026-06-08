@@ -107,6 +107,38 @@ OmniCod from CI, or build your own tooling on top.
 
 ---
 
+## LLM Robustness Layer
+
+OmniCod works well even with weaker or cheaper models because reliability logic lives in the framework — not in the model.
+
+### Pattern-Completion Mitigation
+
+LLMs sometimes fill in code from training memory rather than from what's actually in the file. OmniCod fights this at three levels:
+
+**A — Edit failure diagnosis**
+When `edit` fails because `old_string` doesn't match, the error now explicitly tells the model it likely pattern-completed and must re-read the file before retrying. Weak models that guess content without reading are caught and redirected immediately.
+
+**B — Re-read gating (10-call staleness window)**
+Every file read or write is tracked with a call-index timestamp. When `edit` is called on a file that hasn't been read in the last 10 tool calls, the current file content is automatically injected into the result — without executing the edit. The model sees actual current content and can retry with a correct `old_string`.
+
+**C — Symbol pre-verification**
+Before a write or edit on a TypeScript/JavaScript file, named imports from local modules are extracted and verified. If the file exists but the named export doesn't, the write is blocked with a diagnostic message pointing to the missing symbol. Hallucinated function and type names are caught before they reach the filesystem.
+
+### Additional Robustness Features
+
+| Feature | What it does |
+|---|---|
+| **Dual-path TypeScript verification** | `tsc --noEmit` runs automatically after every edit/write on typed files. TypeScript errors in the edited file are appended to the tool result so the model can self-correct without a separate check step. Results cached 8 seconds. |
+| **Stuck detection** | A per-turn failure tracker detects when the same tool+error combination appears twice in a row. A `[SYSTEM]` warning is injected into the next result, forcing the model to change approach. |
+| **Error analysis hints** | Every tool error is inspected by regex. ENOENT, module-not-found, TypeScript errors, port-in-use, permission denied, OOM — each pattern generates a one-line actionable hint appended to the error. |
+| **Output summarization** | Tool outputs over 4 000 chars are automatically summarized before reaching the model. `grep` results: first 50 matches + file/count summary. General output: head 2 500 chars + tail 600 chars with an omission notice. |
+| **Proactive file injection** | File paths mentioned in the user's message are resolved and injected into the system prompt before the model even calls `read`. The model starts with the relevant content already in context. |
+| **Git context freshness** | For Anthropic providers, git status/branch/log is placed in a separate uncached system message block so it reflects the current state on every turn — never stale from the 5-minute prompt cache. |
+| **Structured compaction** | Session summaries are required to output MODIFIED_FILES, DECISIONS, ERRORS, CURRENT_STATE, and NEXT_STEPS with verbatim file paths and error messages. Vague summaries that lose specific values are structurally prevented. |
+| **Memory extraction on compaction** | Before context is compacted, memories (preferences, project facts, patterns) are extracted and stored in SQLite. They are re-injected into every future session without relying on the conversation history. |
+
+---
+
 ## Installation
 
 ### Compile from source (recommended)
@@ -308,7 +340,7 @@ omnicod /config set default.model claude-sonnet-4-6
 ```bash
 bun install              # install dependencies
 bun run dev              # start in development mode (hot reload)
-bun run test             # run all 131 tests
+bun run test             # run all 145 tests
 bun run typecheck        # TypeScript strict check (both packages)
 bun run build            # compile to standalone binary → dist/omnicod
 ```
@@ -358,6 +390,24 @@ bun test packages/core/test/classifier.test.ts
 Test coverage includes: bash classifier, token counting, permission system, context compaction,
 sandbox detection, agent pool, HTTP server auth, and TUI components (Spinner, Markdown,
 StatusBar, StartupBanner).
+
+---
+
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Getting Started](docs/getting-started.md) | Installation, first run, basic usage |
+| [Configuration](docs/configuration.md) | Config file, env vars, CLAUDE.md, GateGuard |
+| [Tools Reference](docs/tools.md) | All built-in tools, parameters, permissions |
+| [Providers](docs/providers.md) | Anthropic, OpenAI, OpenRouter, Google, Ollama, and more |
+| [Skills & Project Detection](docs/skills.md) | Automatic context injection, custom skills |
+| [Multi-Agent Mode](docs/multi-agent.md) | Coordinator, worker types, agent pool |
+| [LLM Robustness Layer](docs/llm-robustness.md) | Pattern-completion mitigation, re-read gating, symbol verification |
+| [Session Compaction](docs/compaction.md) | Strategies, structured summaries, memory extraction |
+| [MCP Servers](docs/mcp.md) | Model Context Protocol integration |
+| [HTTP API](docs/api.md) | REST endpoints, SSE streaming, scripting |
+| [Hook System](docs/hooks.md) | Lifecycle hooks, blocking tools |
 
 ---
 

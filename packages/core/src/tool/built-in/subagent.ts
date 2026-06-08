@@ -9,6 +9,7 @@ const AGENT_TYPES = Object.keys(AGENT_TYPE_TOOLS) as [AgentType, ...AgentType[]]
 
 export const subagentTool: ToolDef = {
   id: "subagent",
+  timeoutMs: 600_000,  // 10 min — pool's own WORKER_TIMEOUT is 5 min, this gives safe headroom
   description: `Spawn a parallel worker agent to perform a specific task.
 
 WHEN TO USE:

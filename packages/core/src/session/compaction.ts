@@ -29,6 +29,7 @@ export interface CompactionConfig {
   tailTurns:              number
   provider:               string
   model:                  string
+  workdir?:               string
   strategy?:              CompactionStrategy
   messageCountThreshold?: number
 }
@@ -154,7 +155,7 @@ async function snipCompact(
     const { text } = await generateText({
       model,
       messages: [
-        { role: "user", content: `These are tool operations from a coding session. Summarize what was accomplished in 3-4 sentences, focusing on key files changed, commands run, and outcomes:\n\n${toolContext}` },
+        { role: "user", content: `These are tool operations from a coding session. Extract the following — copy file paths and error messages VERBATIM, do not paraphrase:\n\nMODIFIED_FILES: list every file path that was read, written, or edited\nCOMMANDS_RUN: list bash commands and their outcomes (success/fail/error)\nERRORS_FIXED: bugs found and how they were resolved (include exact error messages)\nCURRENT_STATE: one sentence on where the task stands now\n\nTool operations:\n\n${toolContext}` },
       ],
     })
     snipSummary = text
@@ -197,23 +198,30 @@ async function sessionCompact(
   const pruned = smartCompact(head, budget)
 
   const summaryPrompt = cfg.strategy === "aggressive"
-    ? "Summarize the key decisions and completed tasks in 3-5 bullet points. Be concise."
+    ? [
+        "Summarize this coding session in 4-6 bullet points. For each bullet include exact file paths and specific values — do NOT paraphrase them.",
+        "Focus on: what changed, what broke, what was fixed, what is next.",
+      ].join("\n")
     : cfg.strategy === "conservative"
     ? [
-        "Provide a structured summary of the work done so far. Include:",
-        "**Completed:** What was finished.",
-        "**Key files:** File paths touched and what changed.",
-        "**Decisions:** Important architectural or design choices.",
-        "**State:** Current state of the codebase/task.",
-        "**Open:** Any unresolved issues or next steps.",
-        "Preserve all code snippets, file paths, and error messages verbatim.",
+        "Provide a structured summary of the work done so far.",
+        "You MUST copy file paths, error messages, variable names, and config keys VERBATIM — never paraphrase specific values.",
+        "",
+        "**MODIFIED_FILES:** List every file path that was touched (exact paths)",
+        "**DECISIONS:** Architectural or design choices made and why",
+        "**ERRORS:** Bugs encountered and how they were resolved (include exact error messages)",
+        "**CURRENT_STATE:** What is working, what is broken, what is in progress",
+        "**NEXT_STEPS:** What remains to be done",
       ].join("\n")
     : [
-        "Summarize the conversation so far. Include:",
-        "• What was accomplished",
-        "• Key files changed (with paths)",
-        "• Important decisions",
-        "• Current state and next steps",
+        "Summarize this coding session. You MUST include:",
+        "1. MODIFIED_FILES: exact file paths (copy verbatim — never paraphrase)",
+        "2. DECISIONS: architectural/design choices and their reasons",
+        "3. ERRORS: bugs found and fixes applied (include exact error text)",
+        "4. CURRENT_STATE: what works, what is broken, what is in progress",
+        "5. NEXT_STEPS: what still needs to be done",
+        "",
+        "Preserve all specific values: line numbers, error codes, variable names, config keys.",
       ].join("\n")
 
   const plugin = ProviderRegistry.get(cfg.provider)
@@ -240,7 +248,8 @@ async function sessionCompact(
 
   for (const filePath of filePaths.slice(0, 3)) {
     try {
-      const abs     = filePath.startsWith("/") ? filePath : resolve(process.cwd(), filePath)
+      const base    = cfg.workdir ?? process.cwd()
+      const abs     = filePath.startsWith("/") ? filePath : resolve(base, filePath)
       const content = await readFile(abs, "utf8")
       fileBlocks.push(`\n[Re-injected: ${filePath}]\n\`\`\`\n${content.slice(0, 4_000)}\n\`\`\``)
     } catch {

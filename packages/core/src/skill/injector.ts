@@ -10,32 +10,69 @@ import { pinStore } from "../pin/store.js"
 import { execSync } from "child_process"
 import { join } from "node:path"
 import { homedir } from "node:os"
-import { readdirSync, existsSync } from "node:fs"
+import { readdirSync, existsSync, readFileSync } from "node:fs"
 import type { LoadedSkill, SkillDef } from "./types.js"
 
-const MAX_SKILL_TOKENS = 6_000   // tüm skill'ler için toplam token bütçesi
+const MAX_SKILL_TOKENS        = 6_000   // total token budget for all skills
+const MAX_PROJECT_INSTRUCTIONS = 8_000  // character cap for CLAUDE.md / AGENTS.md content
 
 // ─── Multi-dir cache ──────────────────────────────────────────────────────────
 interface CacheEntry { skills: LoadedSkill[]; expiresAt: number }
 const cache = new Map<string, CacheEntry>()
 const CACHE_TTL_MS = 60_000  // 1 dakika sonra yeniden detect
 
-export async function buildSystemPrompt(projectDir: string, base?: string): Promise<string> {
+export async function buildSystemPrompt(projectDir: string, base?: string, includeGit = false): Promise<string> {
   const skills = await getSkillsForProject(projectDir)
   const finalBase = [FULL_SYSTEM_PROMPT, base].filter(Boolean).join("\n\n---\n\n")
 
-  const skillSection  = skills.length > 0 ? buildSkillSection(skills) : ""
-  const memorySection = buildMemorySection(projectDir)
-  const pinSection    = pinStore.toPromptSection(projectDir)
-  const gitSection    = buildGitSection(projectDir)
+  const skillSection        = skills.length > 0 ? buildSkillSection(skills) : ""
+  const memorySection       = buildMemorySection(projectDir)
+  const pinSection          = pinStore.toPromptSection(projectDir)
+  const gitSection          = includeGit ? buildGitSection(projectDir) : ""
+  const instructionsSection = readProjectInstructions(projectDir)
 
-  return [finalBase, pinSection, gitSection, skillSection, memorySection]
+  // Project instructions are prepended first — they take highest precedence
+  return [instructionsSection, finalBase, pinSection, gitSection, skillSection, memorySection]
     .filter(Boolean)
     .join("\n\n")
     .trim()
 }
 
-function buildGitSection(workdir: string): string {
+/**
+ * Reads CLAUDE.md / AGENTS.md from the project directory and the user's home dir.
+ * Mirrors Claude Code's own CLAUDE.md injection behavior.
+ * Priority order (last wins in terms of placement — prepended to system prompt):
+ *   1. ~/.claude/CLAUDE.md        (global user instructions)
+ *   2. <workdir>/CLAUDE.md        (project-level instructions)
+ *   3. <workdir>/AGENTS.md        (alternative convention)
+ *   4. <workdir>/.claude/CLAUDE.md (scoped project instructions)
+ */
+function readProjectInstructions(workdir: string): string {
+  const candidates: Array<{ path: string; label: string }> = [
+    { path: join(homedir(), ".claude", "CLAUDE.md"),   label: "Global (~/.claude/CLAUDE.md)" },
+    { path: join(workdir, "CLAUDE.md"),                label: "Project (CLAUDE.md)" },
+    { path: join(workdir, "AGENTS.md"),                label: "Project (AGENTS.md)" },
+    { path: join(workdir, ".claude", "CLAUDE.md"),     label: "Project (.claude/CLAUDE.md)" },
+  ]
+
+  const sections: string[] = []
+
+  for (const { path, label } of candidates) {
+    if (!existsSync(path)) continue
+    try {
+      let content = readFileSync(path, "utf8").trim()
+      if (!content) continue
+      if (content.length > MAX_PROJECT_INSTRUCTIONS) {
+        content = content.slice(0, MAX_PROJECT_INSTRUCTIONS) + "\n\n[... truncated — file exceeds 8 000 chars]"
+      }
+      sections.push(`# Project Instructions (${label})\n\n${content}`)
+    } catch { /* unreadable — skip silently */ }
+  }
+
+  return sections.join("\n\n---\n\n")
+}
+
+export function buildGitSection(workdir: string): string {
   try {
     const g = (cmd: string) => execSync(`git ${cmd}`, { cwd: workdir, encoding: "utf8", stdio: ["pipe","pipe","pipe"] }).trim()
     // Git repo değilse skip
@@ -155,6 +192,76 @@ function resolveSkillDeps(skills: SkillDef[], depth = 0): SkillDef[] {
 
 export function clearSkillCache(): void {
   cache.clear()
+}
+
+// ─── Proactive file injection ─────────────────────────────────────────────────
+
+const PROACTIVE_FILE_RE = /(?:^|[\s`'"(,])([./\w-]+\.(?:ts|tsx|js|jsx|mts|mjs|py|go|rs|md|json|yaml|yml|css|html|sh|toml|env))(?=$|[\s`'"),\]])/gm
+const MAX_PROACTIVE_FILES  = 3
+const MAX_PROACTIVE_CHARS  = 6_000
+const MAX_SINGLE_FILE_CHARS = 3_000
+const MAX_FILE_SIZE_BYTES   = 50_000
+
+export async function buildProactiveFileSection(userText: string, workdir: string): Promise<string> {
+  if (!userText.trim()) return ""
+
+  const mentioned = new Set<string>()
+  let m: RegExpExecArray | null
+  const re = new RegExp(PROACTIVE_FILE_RE.source, PROACTIVE_FILE_RE.flags)
+  while ((m = re.exec(userText)) !== null) {
+    const raw = (m[1] ?? "").trim()
+    if (raw && raw.length > 3) mentioned.add(raw)
+  }
+  if (mentioned.size === 0) return ""
+
+  const sections: string[] = []
+  let totalChars = 0
+
+  for (const mention of [...mentioned].slice(0, MAX_PROACTIVE_FILES * 2)) {
+    if (sections.length >= MAX_PROACTIVE_FILES || totalChars >= MAX_PROACTIVE_CHARS) break
+
+    // Try direct path first, then glob fallback for filename-only mentions
+    const resolved = await resolveFileMention(mention, workdir)
+    if (!resolved) continue
+
+    try {
+      const file = Bun.file(resolved)
+      if (file.size > MAX_FILE_SIZE_BYTES) continue
+      const content = await file.text()
+      const excerpt = content.slice(0, MAX_SINGLE_FILE_CHARS)
+      const relative = resolved.startsWith(workdir + "/") ? resolved.slice(workdir.length + 1) : resolved
+      const truncNote = content.length > MAX_SINGLE_FILE_CHARS ? "\n... [truncated]" : ""
+      const ext = relative.split(".").pop() ?? ""
+      sections.push(`### ${relative}\n\`\`\`${ext}\n${excerpt}${truncNote}\n\`\`\``)
+      totalChars += excerpt.length
+    } catch { continue }
+  }
+
+  if (sections.length === 0) return ""
+  return `## Files Referenced in Your Request\n\n${sections.join("\n\n")}`
+}
+
+async function resolveFileMention(mention: string, workdir: string): Promise<string | null> {
+  // 1. Absolute path
+  if (mention.startsWith("/")) {
+    try { if ((await Bun.file(mention).exists())) return mention } catch {}
+    return null
+  }
+
+  // 2. Relative path directly under workdir
+  const direct = join(workdir, mention)
+  try { if (await Bun.file(direct).exists()) return direct } catch {}
+
+  // 3. Glob fallback — find by filename anywhere in project
+  const filename = mention.split("/").pop() ?? mention
+  try {
+    const glob = new Bun.Glob("**/" + filename)
+    for await (const found of glob.scan({ cwd: workdir, absolute: true })) {
+      return found  // first match
+    }
+  } catch {}
+
+  return null
 }
 
 // ─── Token bütçesi ile skill seçimi ──────────────────────────────────────────

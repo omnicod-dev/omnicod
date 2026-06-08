@@ -16,6 +16,7 @@ export { OllamaPlugin }     from "./provider/ollama.js"
 export { countTokens, estimateMessages } from "./provider/tokenizer.js"
 
 export { hooks }                             from "./hook/emitter.js"
+export { loadUserHooks }                     from "./hook/user-hooks.js"
 export type { HookPayloads, HookName }       from "./hook/types.js"
 export type { HookOutcome }                  from "./hook/emitter.js"
 
@@ -39,7 +40,7 @@ export type { ContextType, ContextHealth }               from "./session/context
 export { SkillRegistry }                                 from "./skill/registry.js"
 export { detectSkills }                                  from "./skill/detector.js"
 export { loadSkill, loadSkills }                         from "./skill/loader.js"
-export { buildSystemPrompt, getSkillsForProject, clearSkillCache, getContextualSkills } from "./skill/injector.js"
+export { buildSystemPrompt, getSkillsForProject, clearSkillCache, getContextualSkills, buildGitSection, buildProactiveFileSection } from "./skill/injector.js"
 export type { SkillDef, LoadedSkill, SkillMatch }        from "./skill/types.js"
 export { autoInvoker }                                   from "./skill/auto-invoke.js"
 export type { AutoInvokeRule, AutoTrigger }              from "./skill/auto-invoke.js"

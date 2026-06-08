@@ -1,5 +1,6 @@
 import { streamText, generateText, tool } from "ai"
 import type { CoreMessage, ToolSet } from "ai"
+import { resolve } from "path"
 import { ProviderRegistry } from "../provider/registry.js"
 import { ToolRegistry } from "../tool/registry.js"
 import { executeTool } from "../tool/executor.js"
@@ -10,6 +11,8 @@ import { attachmentToAIContent } from "../util/attachments.js"
 import { createThinkTagFilter } from "../util/think-tag-filter.js"
 import { getUndercoverInstructions } from "./undercover.js"
 import { loadConfig } from "../config/config.js"
+import { extractAndStoreMemories } from "../memory/extractor.js"
+import { buildGitSection, buildProactiveFileSection } from "../skill/injector.js"
 import type { AgentRunOptions, AgentFinishResult } from "./types.js"
 
 const MAX_STEPS = 20
@@ -22,6 +25,9 @@ function buildAITools(
   provider: string,
   model: string,
   onChunk?: (chunk: string) => void,
+  failureTracker?: Map<string, number>,
+  recentReads?: Map<string, number>,
+  toolCallIndexRef?: { current: number },
 ): ToolSet {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: Record<string, any> = {}
@@ -31,12 +37,56 @@ function buildAITools(
       description: def.description,
       parameters:  def.parameters as never,
       execute: async (args: Record<string, unknown>) => {
+        if (toolCallIndexRef) toolCallIndexRef.current++
+        const currentIdx = toolCallIndexRef?.current ?? 0
+
+        // B: Re-read gating — if file not read in last 10 calls, inject current content
+        if (recentReads && captured.id === "edit") {
+          const rawPath = String(args["path"] ?? "")
+          if (rawPath) {
+            const absPath   = resolve(workdir, rawPath)
+            const lastRead  = recentReads.get(absPath)
+            const isFresh   = lastRead !== undefined && (currentIdx - lastRead) <= 10
+            if (!isFresh) {
+              try {
+                const content = await Bun.file(absPath).text()
+                const excerpt = content.slice(0, 6_000)
+                const trunc   = content.length > 6_000 ? "\n... [truncated]" : ""
+                const staleness = lastRead !== undefined
+                  ? `${currentIdx - lastRead} tool calls ago`
+                  : "never in this turn"
+                return `[Re-read gate] '${rawPath}' was last read ${staleness}. Current content:\n\`\`\`\n${excerpt}${trunc}\n\`\`\`\n\nReview the actual content above, then re-issue your edit with an exact verbatim match from what you see.`
+              } catch {
+                // Can't read file — let edit run and fail with its own error
+              }
+            }
+          }
+        }
+
         const ctx = {
           sessionId, workdir, signal: new AbortController().signal, provider, model,
           ...(onChunk !== undefined ? { onChunk } : {}),
         }
         const res = await executeTool(captured, args, ctx)
-        return res.error ? `ERROR: ${res.error}\n${res.output}` : res.output
+
+        // Track file reads and writes so re-read gate stays accurate
+        if (recentReads && !res.error && (captured.id === "read" || captured.id === "write")) {
+          const rawPath = String(args["path"] ?? "")
+          if (rawPath) recentReads.set(resolve(workdir, rawPath), currentIdx)
+        }
+
+        let out = res.error ? `ERROR: ${res.error}\n${res.output}` : res.output
+
+        if (res.error && failureTracker) {
+          const fingerprint = `${captured.id}:${String(res.error).slice(0, 80)}`
+          const count = (failureTracker.get(fingerprint) ?? 0) + 1
+          failureTracker.set(fingerprint, count)
+          if (count >= 2) {
+            out += `\n\n[SYSTEM: You have hit this exact error ${count} times in a row. DO NOT retry the same approach. Stop, identify the root cause, and try a fundamentally different solution.]`
+          }
+        }
+
+        return out
       },
     })
   }
@@ -81,9 +131,12 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentFinishResult
     strategy,
     provider:              providerName,
     model:                 modelId,
+    workdir,
     ...(msgThreshold !== undefined ? { messageCountThreshold: msgThreshold } : {}),
   }
   if (modelInfo && (isOverflow(messages, compCfgFull) || isOverflowByMessages(messages, compCfgFull))) {
+    // Extract memories from messages about to be lost to compaction (fire-and-forget)
+    extractAndStoreMemories(providerName, modelId, messages, workdir).catch(() => {})
     const compacted = await compact(messages, compCfgFull)
     if (!compacted) return { text: "", tokens: { input: 0, output: 0 }, newMessages: [], ...(sessionId !== undefined ? { sessionId } : {}) }
     messages  = compacted
@@ -91,9 +144,12 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentFinishResult
   }
 
   // supportsTools: false olan modeller tool API'si desteklemez — boş geç
-  const hasToolSupport = modelInfo?.supportsTools !== false
+  const hasToolSupport   = modelInfo?.supportsTools !== false
+  const failureTracker   = new Map<string, number>()
+  const recentReads      = new Map<string, number>()
+  const toolCallIndexRef = { current: 0 }
   const rawTools = hasToolSupport
-    ? buildAITools(workdir, sessionId ?? "", providerName, modelId, opts.onChunk)
+    ? buildAITools(workdir, sessionId ?? "", providerName, modelId, opts.onChunk, failureTracker, recentReads, toolCallIndexRef)
     : ({} as ToolSet)
 
   // toolsOverride: session agent kısıtlaması — sadece izin verilen tool'lar
@@ -103,22 +159,49 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentFinishResult
       ) as ToolSet
     : rawTools
 
+  // --- Proactive file injection: dosya adları user mesajında geçiyorsa önceden inject et ---
+  const lastUserMsg = [...messages].reverse().find(m => m.role === "user")
+  const lastUserText = lastUserMsg
+    ? (typeof lastUserMsg.content === "string" ? lastUserMsg.content : "")
+    : ""
+  const proactiveSection = await buildProactiveFileSection(lastUserText, workdir).catch(() => "")
+
   // --- Skill injection (otomatik proje tespiti) ---
-  let system = await buildSystemPrompt(workdir, opts.system)
+  // Git context buildSystemPrompt dışında tutulur — Anthropic'te ayrı uncached blok olarak inject edilir
+  const baseSystem = await buildSystemPrompt(workdir, opts.system, false)
+  const extraSystem = [proactiveSection].filter(Boolean).join("\n\n")
+  let system = extraSystem ? `${baseSystem}\n\n${extraSystem}` : baseSystem
+
   if (opts.undercover) {
     system = [system, getUndercoverInstructions()].filter(Boolean).join("\n\n---\n\n")
   }
 
-  // Anthropic prompt caching: system prompt'u mesaj dizisine cache_control ile inject et
+  // Git context her turn'de fresh — Anthropic cache'e girmemeli
+  const gitSection = buildGitSection(workdir)
+
+  // Anthropic prompt caching: statik kısım cache'lenir, git context cache'lenmez
   let systemParam: string | undefined = system || undefined
-  if (system && plugin.sdkType === "anthropic") {
-    const sysMsg: CoreMessage = {
-      role: "system",
-      content: system,
-      providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } },
+  if (plugin.sdkType === "anthropic") {
+    const contentBlocks: Array<{ type: "text"; text: string; experimental_providerMetadata?: unknown }> = []
+    if (system) {
+      contentBlocks.push({
+        type: "text",
+        text: system,
+        experimental_providerMetadata: { anthropic: { cacheControl: { type: "ephemeral" } } },
+      })
     }
-    messages = [sysMsg, ...messages]
-    systemParam = undefined
+    if (gitSection) {
+      contentBlocks.push({ type: "text", text: gitSection })
+    }
+    if (contentBlocks.length > 0) {
+      const sysMsg: CoreMessage = { role: "system", content: contentBlocks as never }
+      messages = [sysMsg, ...messages]
+      systemParam = undefined
+    }
+  } else if (system || gitSection) {
+    // Non-Anthropic: git context dahil tek string
+    const fullSystem = [system, gitSection].filter(Boolean).join("\n\n")
+    systemParam = fullSystem || undefined
   }
 
   const shared = {

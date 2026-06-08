@@ -108,8 +108,29 @@ function dispatch(evt: MouseEvent): void {
 
 let cleanupFn: (() => void) | null = null
 
-export function useMouseEvents(handler: MouseHandler): void {
+/**
+ * Subscribe to mouse events.
+ *
+ * @param handler  Event callback.
+ * @param active   When false, tracking is disabled and the terminal handles
+ *                 scroll natively (user can scroll through output history).
+ *                 Defaults to true only when a Picker/overlay is open.
+ */
+export function useMouseEvents(handler: MouseHandler, active = true): void {
   useEffect(() => {
+    if (!active) {
+      // If this handler was previously registered, unregister it and
+      // tear down tracking when no other handlers remain.
+      if (handlers.has(handler)) {
+        handlers.delete(handler)
+        if (handlers.size === 0 && cleanupFn) {
+          cleanupFn()
+          cleanupFn = null
+        }
+      }
+      return
+    }
+
     if (handlers.size === 0) {
       cleanupFn = enableMouseTracking()
     }
@@ -122,7 +143,7 @@ export function useMouseEvents(handler: MouseHandler): void {
         cleanupFn = null
       }
     }
-  }, [handler])
+  }, [handler, active])
 }
 
 export function useMouseClick(

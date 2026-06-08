@@ -10,6 +10,7 @@ const BUILT_IN_TYPES = ["explore", "code", "review", "test", "docs", "performanc
 
 export const taskTool: ToolDef = {
   id:          "task",
+  timeoutMs:   600_000,  // 10 min for foreground tasks; background tasks return immediately
   description: "Spawn a specialized subagent. Built-in types: explore, code, review, test, docs, performance, analytics, security, debug. Custom agents: use the agent ID from .omnicod/agents/*.md",
   parameters:  z.object({
     type:        z.string().describe("Agent type (built-in or custom agent ID from .omnicod/agents/)"),

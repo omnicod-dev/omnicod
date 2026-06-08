@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { ptyManager } from "../../pty/manager.js"
+import { getShell } from "../../util/shell.js"
 import type { ToolDef, ToolContext, ExecuteResult } from "../types.js"
 import { PlanGate } from "../../plan/gate.js"
 
@@ -55,10 +56,10 @@ export const planVerifyTool: ToolDef = {
     const expectedOutcome = String(args["expectedOutcome"])
     const command = String(args["verificationCommand"])
 
+    const sh = getShell()
     let session
     try {
-      // Doğrulamalar genellikle sessiz ve hızlı olmalıdır
-      session = await ptyManager.create("bash", ["-c", command], ctx.workdir, {})
+      session = await ptyManager.create(sh.executable, [sh.flag, command], ctx.workdir, {})
     } catch (err) {
       return { output: "", error: `Verification process failed to start: ${err instanceof Error ? err.message : String(err)}` }
     }
