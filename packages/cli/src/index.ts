@@ -123,9 +123,10 @@ await loadPlugins()
 const cfg      = applyFlags(loadConfig(workdir), flags)
 const { defaultProvider } = await bootstrap(cfg)
 
-const provider = cfg.provider ?? defaultProvider
-const plugin   = ProviderRegistry.get(provider)
-const model    = cfg.model ?? plugin.defaultModel()
+const provider   = cfg.provider ?? loadOmniConfig(workdir).defaults?.provider ?? defaultProvider
+const plugin     = ProviderRegistry.get(provider)
+const savedModel = loadOmniConfig(workdir).defaults?.model
+const model      = cfg.model ?? savedModel ?? plugin.defaultModel()
 
 if (process.stdin.isTTY) {
   // İnteraktif mod — Ink TUI
